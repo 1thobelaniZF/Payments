@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import time
 import uuid
 import zipfile
 from datetime import datetime, timedelta
@@ -17,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from flask import (Flask, abort, jsonify, redirect, render_template, request, send_file,
                    send_from_directory, session)
+import jinja2
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
@@ -53,6 +55,15 @@ PW_METHOD = "pbkdf2:sha256:600000"  # available on every Python build (scrypt is
 LOCKOUT = timedelta(minutes=15)
 
 app = Flask(__name__, static_folder=None, template_folder=os.path.join(HERE, "templates"))
+# Page files normally live in templates/, but a GitHub web upload can drop them at the top
+# level - look in both places so either layout works.
+PAGE_DIRS = [os.path.join(HERE, "templates"), HERE]
+app.jinja_loader = jinja2.FileSystemLoader(PAGE_DIRS)
+
+
+def page(name):
+    folder = next((d for d in PAGE_DIRS if os.path.exists(os.path.join(d, name))), PAGE_DIRS[0])
+    return send_from_directory(folder, name)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -81,8 +92,14 @@ def _secret_key():
 NEEDS_DB = ON_VERCEL and not db.PG_URL  # Vercel's disk is temporary - a database is required
 
 DB_ERROR = None  # why the database can't be reached, shown on the page instead of crashing
+DB_LAST_TRY = 0.0
+DB_RETRY_SECONDS = 60  # don't hammer the database: repeated failed logins get the address blocked
 
 DB_HINTS = [
+    ("too many authentication failures", "Supabase has temporarily blocked logins because the "
+     "password in DATABASE_URL is wrong. Reset the database password in Supabase (Project Settings "
+     "-> Database), put the new password into DATABASE_URL in Vercel, redeploy, then wait a few "
+     "minutes for the block to lift before reloading."),
     ("password authentication failed", "The password in DATABASE_URL is wrong. Copy the connection string "
      "from Supabase again (Connect -> Transaction pooler), put in the current database password, "
      "update DATABASE_URL in Vercel and redeploy."),
@@ -107,7 +124,8 @@ def _hide_password(msg):
 
 def _connect_db():
     """Load the session key from the database; on failure remember why instead of crashing."""
-    global DB_ERROR
+    global DB_ERROR, DB_LAST_TRY
+    DB_LAST_TRY = time.monotonic()
     try:
         app.secret_key = _secret_key()
         DB_ERROR = None
@@ -130,8 +148,8 @@ def _require_database():
         return ("<h2>One more step</h2><p>The app can't find its database. In Vercel, add an "
                 "environment variable named <b>DATABASE_URL</b> (your Supabase or Neon connection "
                 "string) with <b>Production</b> ticked, then <b>Redeploy</b>.</p>"), 503
-    if DB_ERROR:
-        _connect_db()  # try again - it may have been a passing hiccup
+    if DB_ERROR and time.monotonic() - DB_LAST_TRY > DB_RETRY_SECONDS:
+        _connect_db()  # try again now and then - it may have been a passing hiccup
     if DB_ERROR:
         from html import escape
         hint = next((h for k, h in DB_HINTS if k in DB_ERROR.lower()),
@@ -483,7 +501,7 @@ def favicon_png():
 @app.get("/")
 @login_required()
 def index():
-    return send_from_directory(os.path.join(HERE, "templates"), "index.html")
+    return page("index.html")
 
 
 @app.get("/api/state")
@@ -813,7 +831,7 @@ def waiting_for(user):
 @app.get("/sign")
 @login_required()
 def sign_page():
-    return send_from_directory(os.path.join(HERE, "templates"), "sign.html")
+    return page("sign.html")
 
 
 @app.get("/api/signing")

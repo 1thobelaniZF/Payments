@@ -77,8 +77,8 @@ def _run(sql, params=()):
 def _exec(sql, params=()):
     try:
         return _conn().execute(_sql(sql), params)
-    except Exception:
-        if PG_URL:  # stale serverless connection - reconnect once
+    except Exception as e:
+        if PG_URL and "authentication" not in str(e).lower():  # stale serverless connection - reconnect once
             _local.conn = None
             return _conn().execute(_sql(sql), params)
         raise
