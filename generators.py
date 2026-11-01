@@ -9,7 +9,9 @@ import openpyxl
 import xlwt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REQ_TEMPLATE = os.path.join(HERE, "excel_templates", "requisition_template.xlsx")
+REQ_TEMPLATE = next((p for p in (os.path.join(HERE, "excel_templates", "requisition_template.xlsx"),
+                                  os.path.join(HERE, "requisition_template.xlsx")) if os.path.exists(p)),
+                    os.path.join(HERE, "excel_templates", "requisition_template.xlsx"))
 
 LINE_ROWS = range(14, 28)    # invoice lines on the requisition (B14:E27)
 ALLOC_ROWS = range(30, 41)   # account allocation lines (B30:E40)

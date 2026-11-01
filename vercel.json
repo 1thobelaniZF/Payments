@@ -3,7 +3,7 @@
   "functions": {
     "app.py": {
       "maxDuration": 60,
-      "includeFiles": "{templates,excel_templates}/**"
+      "includeFiles": "{templates/**,excel_templates/**,*.html,*.xlsx}"
     }
   }
 }

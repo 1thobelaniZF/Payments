@@ -33,8 +33,9 @@ def _logo_image():
     """The Zenex logo, taken from the requisition template so it always matches."""
     global _logo
     if _logo is None:
-        path = os.path.join(HERE, "excel_templates", "requisition_template.xlsx")
-        if os.path.exists(path):
+        path = next((p for p in (os.path.join(HERE, "excel_templates", "requisition_template.xlsx"),
+                                 os.path.join(HERE, "requisition_template.xlsx")) if os.path.exists(p)), "")
+        if path:
             raw = open(path, "rb").read()
         else:
             from requisition_template_data import DATA
