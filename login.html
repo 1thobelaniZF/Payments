@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payment Requisitions</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--ink:#1b1f24;--muted:#667085;--line:#e3e6eb;--accent:#0f5fd6;--accent-ink:#fff;--bad:#b42318;--bad-bg:#fdecea;--field:#fbfbfc}
+@media (prefers-color-scheme: dark){:root{--bg:#111418;--panel:#191d23;--ink:#e7eaee;--muted:#98a2b3;--line:#2a3039;--accent:#5b9cff;--accent-ink:#0b1220;--bad:#ff8a80;--bad-bg:#2e1614;--field:#14181d}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px 24px;width:min(380px,100%)}
+h1{font-size:18px;margin:0 0 4px} p{color:var(--muted);margin:0 0 18px}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:12px}
+input{font:inherit;font-size:14px;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+input:focus{outline:2px solid color-mix(in srgb,var(--accent) 40%,transparent);border-color:var(--accent)}
+button{width:100%;font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px;background:var(--accent);color:var(--accent-ink);cursor:pointer;margin-top:4px}
+.err{background:var(--bad-bg);color:var(--bad);border-radius:8px;padding:9px 11px;margin-bottom:14px;font-size:13px}
+code{background:var(--field);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+</style>
+</head>
+<body>
+<div class="box">
+{% if mode == "login" %}
+  <h1>Payment Requisitions</h1>
+  <p>Sign in to continue.</p>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="post" action="/login">
+    <label>Username <input name="username" autocomplete="username" autofocus required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <button>Sign in</button>
+  </form>
+{% elif mode == "setup" %}
+  <h1>Set up the first account</h1>
+  <p>This account will be the admin. You can add your colleagues after signing in.</p>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="post" action="/setup">
+    {% if code_needed %}<label>Setup code <input name="code" type="password" required autofocus></label>{% endif %}
+    <label>Your full name <input name="name" required placeholder="e.g. Lerato Khoza"></label>
+    <label>Username <input name="username" autocomplete="username" required placeholder="e.g. lerato"></label>
+    <label>Password (8+ characters) <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+    <label>Password again <input name="password2" type="password" autocomplete="new-password" minlength="8" required></label>
+    <button>Create admin account</button>
+  </form>
+{% else %}
+  <h1>Almost ready</h1>
+  <p>To protect the first sign-up, add an environment variable named <code>SETUP_CODE</code> in your Vercel project settings (any secret phrase), redeploy, then reload this page.</p>
+{% endif %}
+</div>
+</body>
+</html>

@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payment Requisitions</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+:root{
+  --bg:#f5f6f8; --panel:#fff; --ink:#1b1f24; --muted:#667085; --line:#e3e6eb;
+  --accent:#0f5fd6; --accent-ink:#fff; --ok:#137a3f; --ok-bg:#e7f6ec; --warn:#9a5b00; --warn-bg:#fff4e0;
+  --bad:#b42318; --bad-bg:#fdecea; --field:#fbfbfc;
+}
+@media (prefers-color-scheme: dark){ :root{
+  --bg:#111418; --panel:#191d23; --ink:#e7eaee; --muted:#98a2b3; --line:#2a3039;
+  --accent:#5b9cff; --accent-ink:#0b1220; --ok:#5fd08d; --ok-bg:#12291c; --warn:#f3b454; --warn-bg:#2d2310;
+  --bad:#ff8a80; --bad-bg:#2e1614; --field:#14181d;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:17px;margin:0;font-weight:650}
+.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--line);color:var(--muted)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.spacer{flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 13px;border-radius:8px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+main{max-width:1280px;margin:0 auto;padding:20px 24px 80px}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:28px;text-align:center;background:var(--panel);cursor:pointer;transition:.15s}
+.drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--panel))}
+.drop b{font-size:15px}
+.drop p{margin:6px 0 0;color:var(--muted)}
+.summary{display:flex;gap:20px;align-items:center;margin:20px 0 12px;flex-wrap:wrap}
+.summary .stat{font-size:13px;color:var(--muted)} .summary .stat b{color:var(--ink);font-size:16px;margin-left:4px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:16px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);overflow:hidden}
+.card.generated{opacity:.7}
+.preview{border-right:1px solid var(--line);background:var(--bg);min-height:520px}
+.preview iframe{width:100%;height:100%;min-height:520px;border:0;display:block}
+.form{padding:16px 18px}
+.form .top{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.form .top .fname{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
+.grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px 12px}
+label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--muted);font-weight:550;text-transform:uppercase;letter-spacing:.03em}
+label.c2{grid-column:span 2} label.c3{grid-column:span 3} label.c6{grid-column:span 6} label.c4{grid-column:span 4}
+input,select{font:inherit;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:7px;padding:7px 9px;width:100%;font-weight:400}
+input:focus,select:focus{outline:2px solid color-mix(in srgb,var(--accent) 40%,transparent);border-color:var(--accent)}
+input.missing{border-color:var(--bad)}
+.section{grid-column:span 6;font-size:12px;font-weight:650;color:var(--ink);margin-top:6px;padding-top:8px;border-top:1px solid var(--line)}
+.issues{margin:12px 0 0;padding:9px 12px;border-radius:8px;background:var(--bad-bg);color:var(--bad);font-size:13px}
+.issues.none{background:var(--ok-bg);color:var(--ok)}
+.warning{margin:0 0 10px;padding:8px 12px;border-radius:8px;background:var(--warn-bg);color:var(--warn);font-size:13px}
+.actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end}
+.result{background:var(--ok-bg);color:var(--ok);border-radius:14px;padding:16px 18px;margin:16px 0}
+.result a{color:inherit;font-weight:600}
+.result ul{margin:8px 0 0;padding-left:18px}
+.empty{color:var(--muted);text-align:center;padding:40px}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;width:min(640px,94vw)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog .body{padding:18px 20px} dialog h2{margin:0 0 12px;font-size:16px}
+dialog .foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--line)}
+.hint{font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;opacity:0;transition:.2s;pointer-events:none}
+.toast.show{opacity:1}
+.busy{color:var(--muted);padding:12px 0}
+@media (max-width:900px){ .card{grid-template-columns:1fr} .preview{border-right:0;border-bottom:1px solid var(--line);min-height:360px} .preview iframe{min-height:360px}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))} label.c2,label.c3,label.c4,label.c6,.section{grid-column:span 2} main{padding:16px} header{padding:12px 16px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Payment Requisitions</h1>
+  <a href="/sign" style="font-size:13px;color:var(--muted)">Signatures</a>
+  <span id="aiPill" class="pill">…</span>
+  <span id="supPill" class="pill"></span>
+  <span class="spacer"></span>
+  <button id="settingsBtn">My settings</button>
+  <button id="clearBtn">New batch</button>
+  <button id="usersBtn" hidden>Users</button>
+  <button id="pwBtn">Password</button>
+  <span id="whoami" class="pill"></span>
+  <form method="post" action="/logout" style="margin:0"><button>Sign out</button></form>
+</header>
+<main>
+  <div class="drop" id="drop">
+    <b>Drop invoice PDFs here</b>
+    <p>or click to choose files. Each invoice is read and pre-filled; check the details, then generate the requisitions and import sheet.</p>
+    <input type="file" id="fileInput" accept="application/pdf" multiple hidden>
+  </div>
+  <div id="busy" class="busy" hidden></div>
+  <div id="result"></div>
+
+  <div class="summary">
+    <span class="stat">Invoices<b id="count">0</b></span>
+    <span class="stat">Total<b id="total">R 0.00</b></span>
+    <span class="stat">Ready<b id="ready">0</b></span>
+    <span class="spacer"></span>
+    <span class="stat" id="selInfo"></span>
+    <label style="flex-direction:row;align-items:center;gap:6px;text-transform:none;font-size:13px;letter-spacing:0">Requisitions:
+      <select id="groupSel" style="width:auto">
+        <option value="supplier">One per supplier</option>
+        <option value="all">All invoices on one requisition</option>
+        <option value="invoice">One per invoice</option>
+      </select></label>
+    <button class="primary" id="reqBtn">Make payment requisition</button>
+    <button class="primary" id="impBtn">Make import sheet</button>
+  </div>
+  <div id="list"></div>
+  <details id="pastBox" style="margin-top:24px"><summary style="cursor:pointer;font-weight:600">My previous downloads</summary><div id="past" class="hint" style="margin-top:8px"></div></details>
+</main>
+
+<dialog id="settingsDlg">
+  <form method="dialog">
+  <div class="body">
+    <h2>My settings</h2>
+    <p class="hint" style="margin:-6px 0 12px">Only you see these. Colleagues keep their own.</p>
+    <div class="grid">
+      <label class="c3">Payment date <input type="date" name="payment_date"><span class="hint">Blank = today. Used on requisition & import sheet.</span></label>
+      <label class="c3">Prepared date <input type="date" name="prepared_date"><span class="hint">Blank = today</span></label>
+      <label class="c2">Prepared by <input name="prepared_by" id="preparedBy"><span class="hint">Blank = your name</span></label>
+      <label class="c2">Reviewed by <input name="reviewed_by"></label>
+      <label class="c2">Approved by <input name="approved_by"></label>
+      <div class="section">Paying (debit) account</div>
+      <label class="c2">Account name <input name="debit_account_name"></label>
+      <label class="c2">Account number <input name="debit_account_number"></label>
+      <label class="c2">Branch code <input name="debit_branch_code"></label>
+      <label class="c3">Our reference prefix <input name="debit_ref_prefix"><span class="hint">Ours shows as "Zenex &lt;supplier&gt;" (20 chars max)</span></label>
+      <label class="c3">Default beneficiary reference <input name="default_ref"><span class="hint">"invoice" = use the invoice number; anything else is used as-is</span></label>
+      <label class="c6">Payee heading when a requisition has several suppliers <input name="combined_payee"></label>
+      <label class="c6">Our organisation names (comma separated) <input name="customer_names"><span class="hint">So the reader never mistakes the customer for the supplier</span></label>
+    </div>
+  </div>
+  <div class="foot"><button value="cancel">Cancel</button><button class="primary" value="save" id="saveSettings">Save</button></div>
+  </form>
+</dialog>
+<dialog id="pwDlg"><form method="dialog"><div class="body"><h2>Change my password</h2><div class="grid">
+  <label class="c6">Current password <input type="password" name="current" autocomplete="current-password"></label>
+  <label class="c6">New password (8+ characters) <input type="password" name="new" autocomplete="new-password"></label>
+  <label class="c6">New password again <input type="password" name="new2" autocomplete="new-password"></label>
+</div></div><div class="foot"><button value="cancel">Cancel</button><button class="primary" value="save">Change password</button></div></form></dialog>
+
+<dialog id="usersDlg"><div class="body"><h2>Users</h2>
+  <div id="userList" style="margin-bottom:14px"></div>
+  <div class="section" style="margin:0 0 10px">Add a colleague</div>
+  <div class="grid">
+    <label class="c3">Full name <input id="nuName" placeholder="e.g. Thami Kubheka"></label>
+    <label class="c3">Username <input id="nuUser" placeholder="e.g. thami"></label>
+    <label class="c3">Position <input id="nuPos" placeholder="e.g. Senior Bookkeeper"></label>
+    <label class="c3">Temporary password (8+) <input id="nuPw" type="text"></label>
+    <label class="c3" style="flex-direction:row;align-items:center;gap:6px;margin-top:18px"><input id="nuAdmin" type="checkbox" style="width:auto"> Admin (can manage users)</label>
+  </div>
+  <p class="hint">Give them the temporary password; they can change it under "Password" after signing in.</p>
+</div><div class="foot"><button id="usersClose">Close</button><button class="primary" id="nuAdd">Add user</button></div></dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let state = {items: [], settings: {}};
+const selected = new Set();
+const money = v => 'R ' + (Number(v)||0).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2600)}
+
+async function api(url, opts={}){
+  const r = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
+  const body = await r.json().catch(()=>({}));
+  if(r.status===401){ location.href='/login'; throw new Error('Please sign in'); }
+  if(!r.ok) throw Object.assign(new Error(body.error || r.statusText), {body, status:r.status});
+  return body;
+}
+
+async function refresh(){
+  state = await api('/api/state');
+  $('#whoami').textContent = state.user.name;
+  $('#usersBtn').hidden = !state.user.is_admin;
+  $('#preparedBy').placeholder = state.prepared_by_default;
+  loadPast();
+  const ai = $('#aiPill');
+  ai.textContent = state.ai ? 'AI reading on' : 'Rule-based reading';
+  ai.className = 'pill' + (state.ai ? ' ok' : '');
+  ai.title = state.ai ? 'Invoices are read by Claude' : 'Set ANTHROPIC_API_KEY before starting to let Claude read invoices (handles scans & odd layouts).';
+  $('#supPill').textContent = state.suppliers + ' saved supplier' + (state.suppliers===1?'':'s');
+  render();
+}
+
+const FIELDS = [
+  ['section','Payee'],
+  ['payee','Payee (on requisition)','c4'], ['import_name','Short name (import sheet)','c2'],
+  ['section','Invoice'],
+  ['invoice_number','Invoice no.','c2'], ['invoice_date','Invoice date','c2','date'], ['amount','Amount (R)','c2'],
+  ['gl_code','GL code (optional)','c2'], ['description','Description','c4'],
+  ['section','Allocation & bank'],
+  ['allocation_code','Account allocation (optional)','c2'], ['bank_name','Bank','c2'], ['rtgs','RTGS','c2','rtgs'],
+  ['account_number','Account number','c2'], ['branch_code','Branch code','c2'], ['beneficiary_ref','Their reference (max 20)','c2'],
+];
+
+function card(it){
+  const fields = FIELDS.map(([k,l,c,t]) => {
+    if(k==='section') return `<div class="section">${l}</div>`;
+    if(t==='rtgs') return `<label class="${c}">${l}<select data-k="rtgs"><option ${it.rtgs!=='Y'?'selected':''}>N</option><option ${it.rtgs==='Y'?'selected':''}>Y</option></select></label>`;
+    const miss = ['payee','invoice_number','amount','account_number','branch_code'].includes(k) && !it[k];
+    return `<label class="${c}">${l}<input data-k="${k}" type="${t||'text'}" value="${esc(it[k])}" ${k==='beneficiary_ref'?'maxlength="20"':''} class="${miss?'missing':''}"></label>`;
+  }).join('');
+  const issues = it.issues?.length
+    ? `<div class="issues">${it.issues.map(esc).join('<br>')}</div>`
+    : `<div class="issues none">Ready to generate</div>`;
+  const badge = `<span class="pill">${it.method==='ai'?'Read by AI':it.method==='rules'?'Read by rules':'Manual'}</span>`
+    + (it.requisition_done ? '<span class="pill ok">Requisition made</span>' : '')
+    + (it.import_done ? '<span class="pill ok">On import sheet</span>' : '');
+  return `<div class="card ${it.status}" data-id="${it.id}">
+    <div class="preview"><iframe src="/invoice/${it.id}#view=FitH" title="Invoice preview" loading="lazy"></iframe></div>
+    <div class="form">
+      <div class="top"><input type="checkbox" class="sel" title="Select for the next requisition / import sheet" ${selected.has(it.id)?'checked':''} style="width:auto;margin:0">
+        <span class="fname" title="${esc(it.original_name)}">${esc(it.original_name)}</span>${badge}
+        ${it.known_supplier?'<span class="pill ok">Known supplier</span>':''}</div>
+      ${it.warning?`<div class="warning">${esc(it.warning)}</div>`:''}
+      <div class="grid">${fields}</div>
+      ${issues}
+      <div class="actions"><button class="danger" data-act="del">Remove</button><button data-act="requisition">Requisition for this one</button><button data-act="import">Import sheet for this one</button></div>
+    </div></div>`;
+}
+
+function render(){
+  const items = state.items;
+  $('#list').innerHTML = items.length ? items.map(card).join('') : '<div class="empty">No invoices yet.</div>';
+  const pending = items.filter(i=>i.status!=='generated');
+  $('#count').textContent = pending.length;
+  $('#total').textContent = money(pending.reduce((a,i)=>a+(Number(i.amount)||0),0));
+  $('#ready').textContent = pending.filter(i=>!i.issues.filter(x=>!x.startsWith('Possible duplicate')).length).length;
+  $('#reqBtn').disabled = $('#impBtn').disabled = !pending.length;
+  for(const id of [...selected]) if(!items.some(i=>i.id===id)) selected.delete(id);
+  updateSel();
+}
+
+function updateSel(){
+  const n = selected.size;
+  $('#selInfo').innerHTML = n ? `Selected<b>${n}</b> <a href="#" id="selNone" style="font-size:12px">clear</a>` : '';
+  $('#reqBtn').textContent = n ? `Make payment requisition (${n})` : 'Make payment requisition';
+  $('#impBtn').textContent = n ? `Make import sheet (${n})` : 'Make import sheet';
+  const x = $('#selNone'); if(x) x.onclick = e => { e.preventDefault(); selected.clear();
+    document.querySelectorAll('.card .sel').forEach(c=>c.checked=false); updateSel(); };
+}
+$('#list').addEventListener('change', e => {
+  if(!e.target.classList.contains('sel')) return;
+  const id = e.target.closest('.card').dataset.id;
+  e.target.checked ? selected.add(id) : selected.delete(id);
+  updateSel();
+});
+try{ const g = localStorage.getItem('groupSel'); if(g) $('#groupSel').value = g; }catch(e){}
+$('#groupSel').onchange = () => { try{ localStorage.setItem('groupSel', $('#groupSel').value) }catch(e){} };
+
+// save field edits
+let timers = {};
+$('#list').addEventListener('change', e => {
+  const k = e.target.dataset.k; if(!k) return;
+  const c = e.target.closest('.card'); const id = c.dataset.id;
+  const it = state.items.find(i=>i.id===id);
+  it[k] = e.target.value;
+  api('/api/items/'+id,{method:'PUT',body:JSON.stringify({[k]:e.target.value})}).then(upd=>{
+    Object.assign(it, upd);
+    const tmp = document.createElement('div'); tmp.innerHTML = card(it);
+    // only refresh the issues box + missing flags so the iframe doesn't reload
+    c.querySelector('.issues').replaceWith(tmp.querySelector('.issues'));
+    c.querySelectorAll('input[data-k]').forEach(inp=>{
+      const fresh = tmp.querySelector(`input[data-k="${inp.dataset.k}"]`);
+      inp.className = fresh.className; if(document.activeElement!==inp) inp.value = fresh.value;
+    });
+    const pending = state.items.filter(i=>i.status!=='generated');
+    $('#total').textContent = money(pending.reduce((a,i)=>a+(Number(i.amount)||0),0));
+    $('#ready').textContent = pending.filter(i=>!i.issues.filter(x=>!x.startsWith('Possible duplicate')).length).length;
+  }).catch(err=>toast(err.message));
+});
+
+$('#list').addEventListener('click', async e => {
+  const act = e.target.dataset.act; if(!act) return;
+  const id = e.target.closest('.card').dataset.id;
+  if(act==='del'){ if(!confirm('Remove this invoice from the batch?')) return;
+    await api('/api/items/'+id,{method:'DELETE'}); refresh(); }
+  if(act==='requisition' || act==='import') generate(act, [id]);
+});
+
+async function generate(kind, ids){
+  const body = {kind, group: $('#groupSel').value};
+  if(!ids && selected.size) ids = [...selected];
+  const doneKey = kind==='requisition' ? 'requisition_done' : 'import_done';
+  if(!ids){
+    const pending = state.items.filter(i=>i.status!=='generated');
+    const todo = pending.filter(i=>!i[doneKey]);
+    ids = (todo.length ? todo : pending).map(i=>i.id);
+  }
+  body.ids = ids;
+  if(!ids.length) return toast('No invoices to process');
+  const dup = state.items.filter(i=>body.ids.includes(i.id) && i.issues.some(x=>x.startsWith('Possible duplicate')));
+  if(dup.length && !confirm(`${dup.length} invoice(s) look like duplicates of ones already processed. Continue?`)) return;
+  try{
+    const r = await api('/api/generate',{method:'POST',body:JSON.stringify(body)});
+    const b = encodeURIComponent(r.batch);
+    const what = r.kind==='import' ? 'Import sheet' : 'Payment requisition(s)';
+    $('#result').innerHTML = `<div class="result"><b>${what} done - ${r.count} invoice(s), ${money(r.total)}.</b>
+      ${r.files.length>1 ? `<a href="/output/${b}.zip">Download all (.zip)</a>` : ''}
+      <ul>${r.files.map(f=>`<li><a href="/output/${b}/${encodeURIComponent(f)}">${esc(f)}</a></li>`).join('')}</ul>
+      <div class="hint" style="margin-top:6px">You can download these again later under "My previous downloads".</div></div>`;
+    selected.clear(); refresh();
+  }catch(err){
+    if(err.status===422){
+      const n = Object.keys(err.body.issues).length;
+      toast(`${n} invoice(s) still need details for this - see the red boxes`);
+      document.querySelector(`.card[data-id="${Object.keys(err.body.issues)[0]}"]`)?.scrollIntoView({behavior:'smooth',block:'center'});
+    } else toast(err.message);
+  }
+}
+$('#reqBtn').onclick = () => generate('requisition');
+$('#impBtn').onclick = () => generate('import');
+
+// upload
+const drop = $('#drop'), input = $('#fileInput');
+drop.onclick = () => input.click();
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop', e => upload(e.dataTransfer.files));
+input.onchange = () => { upload(input.files); input.value=''; };
+async function upload(files){
+  files = [...files].filter(f=>f.name.toLowerCase().endsWith('.pdf'));
+  if(!files.length) return toast('Please choose PDF invoices');
+  const b = $('#busy'); b.hidden=false;
+  let n = 0;
+  for(const f of files){  // one per request: hosting caps each request at ~4.5 MB
+    b.textContent = `Reading ${++n} of ${files.length}: ${f.name}…`;
+    if(f.size > 4*1024*1024){ toast(`${f.name} is over 4 MB - skipped`); continue; }
+    const fd = new FormData(); fd.append('files', f);
+    try{
+      const r = await fetch('/api/upload',{method:'POST',body:fd});
+      if(r.status===401){ location.href='/login'; return; }
+      if(!r.ok) throw new Error(((await r.json().catch(()=>({}))).error) || `Upload failed: ${f.name}`);
+    }catch(err){ toast(err.message); }
+  }
+  b.hidden=true; $('#result').innerHTML=''; refresh();
+}
+
+// settings
+$('#settingsBtn').onclick = () => {
+  const f = $('#settingsDlg form');
+  for(const [k,v] of Object.entries(state.settings)) if(f.elements[k]) f.elements[k].value = v;
+  $('#settingsDlg').showModal();
+};
+$('#settingsDlg').addEventListener('close', async () => {
+  if($('#settingsDlg').returnValue!=='save') return;
+  const f = $('#settingsDlg form'); const body = {};
+  for(const k of Object.keys(state.settings)) if(f.elements[k]) body[k] = f.elements[k].value;
+  await api('/api/settings',{method:'PUT',body:JSON.stringify(body)}); toast('Settings saved'); refresh();
+});
+$('#clearBtn').onclick = async () => {
+  if(!confirm('Start a new batch? Generated invoices are cleared from this screen (your downloads stay under "My previous downloads").')) return;
+  await api('/api/clear',{method:'POST'}); $('#result').innerHTML=''; refresh();
+};
+async function loadPast(){
+  const list = await api('/api/batches').catch(()=>[]);
+  $('#past').innerHTML = list.length ? list.map(b=>`<div style="padding:4px 0"><a href="/output/${encodeURIComponent(b.id)}.zip">${esc(b.label)}</a>
+    - ${esc(b.created.slice(0,16).replace('T',' '))}, ${b.count} item(s), ${money(b.total)}</div>`).join('') : 'Nothing yet.';
+}
+
+// password
+$('#pwBtn').onclick = () => { $('#pwDlg form').reset(); $('#pwDlg').showModal(); };
+$('#pwDlg').addEventListener('close', async () => {
+  if($('#pwDlg').returnValue!=='save') return;
+  const f = $('#pwDlg form').elements;
+  if(f.new.value !== f.new2.value) return toast("The new passwords don't match");
+  try{ await api('/api/me/password',{method:'PUT',body:JSON.stringify({current:f.current.value,new:f.new.value})}); toast('Password changed'); }
+  catch(err){ toast(err.message); }
+});
+
+// users (admin)
+async function loadUsers(){
+  const users = await api('/api/users');
+  $('#userList').innerHTML = users.map(u=>`<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:wrap" data-u="${esc(u.username)}">
+    <b style="min-width:140px">${esc(u.name)}</b><span class="hint">${esc(u.username)}${u.position?' · '+esc(u.position):''}${u.is_admin?' · admin':''}</span><span class="spacer"></span>
+    <button data-ua="pos" data-pos="${esc(u.position||'')}">${u.position?'Change position':'Add position'}</button>
+    <button data-ua="reset">Reset password</button><button data-ua="admin">${u.is_admin?'Remove admin':'Make admin'}</button>
+    ${u.username===state.user.username?'':'<button class="danger" data-ua="del">Remove</button>'}</div>`).join('');
+}
+$('#usersBtn').onclick = async () => { await loadUsers(); $('#usersDlg').showModal(); };
+$('#usersClose').onclick = () => $('#usersDlg').close();
+$('#userList').addEventListener('click', async e => {
+  const act = e.target.dataset.ua; if(!act) return;
+  const u = e.target.closest('[data-u]').dataset.u;
+  try{
+    if(act==='reset'){ const pw = prompt(`New temporary password for ${u} (8+ characters):`); if(!pw) return;
+      await api('/api/users/'+encodeURIComponent(u),{method:'PUT',body:JSON.stringify({password:pw})}); toast('Password reset'); }
+    if(act==='pos'){ const pos = prompt(`Position for ${u}:`, e.target.dataset.pos); if(pos===null) return;
+      await api('/api/users/'+encodeURIComponent(u),{method:'PUT',body:JSON.stringify({position:pos})}); toast('Position saved'); }
+    if(act==='admin'){ const isAdmin = e.target.textContent==='Make admin';
+      await api('/api/users/'+encodeURIComponent(u),{method:'PUT',body:JSON.stringify({is_admin:isAdmin})}); }
+    if(act==='del'){ if(!confirm(`Remove ${u}? They will no longer be able to sign in.`)) return;
+      await api('/api/users/'+encodeURIComponent(u),{method:'DELETE'}); toast('User removed'); }
+    loadUsers();
+  }catch(err){ toast(err.message); }
+});
+$('#nuAdd').onclick = async () => {
+  try{
+    await api('/api/users',{method:'POST',body:JSON.stringify({name:$('#nuName').value,username:$('#nuUser').value,
+      position:$('#nuPos').value,password:$('#nuPw').value,is_admin:$('#nuAdmin').checked})});
+    toast('User added'); ['#nuName','#nuUser','#nuPos','#nuPw'].forEach(x=>$(x).value=''); $('#nuAdmin').checked=false; loadUsers();
+  }catch(err){ toast(err.message); }
+};
+
+refresh();
+</script>
+</body>
+</html>
