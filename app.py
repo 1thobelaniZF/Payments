@@ -14,6 +14,7 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta
 from functools import wraps
+from urllib.parse import unquote
 from zoneinfo import ZoneInfo
 
 from flask import (Flask, abort, jsonify, redirect, render_template, request, send_file,
@@ -686,8 +687,9 @@ def generate():
         out.append((name, "application/vnd.ms-excel", buf.getvalue()))
 
     total = sum(float(i["amount"]) for i in chosen)
+    ids_by_name = {}
     for name, mime, data in out:
-        file_id = uuid.uuid4().hex
+        file_id = ids_by_name[name] = uuid.uuid4().hex
         db.run("INSERT INTO files (id, owner, batch, name, mime, data, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
                (file_id, owner, batch, name, mime, db.blob(data), now().isoformat()))
         if name in summaries:
@@ -720,7 +722,7 @@ def generate():
             it["batch"] = stamp
         save_item(owner, it)
 
-    files = [n for n, _, _ in out if not n.startswith("Invoices/")]
+    files = [{"name": n, "id": ids_by_name[n]} for n, _, _ in out if not n.startswith("Invoices/")]
     return jsonify(batch=batch, kind=kind, files=files, count=len(chosen), total=total,
                    signing=len(summaries))
 
@@ -739,15 +741,32 @@ def list_batches():
                            "ORDER BY created DESC LIMIT 20", (request.user["username"],)))
 
 
+def send_output(f):
+    return send_file(io.BytesIO(bytes(f["data"])), mimetype=f["mime"], as_attachment=True,
+                     download_name=os.path.basename(f["name"]))
+
+
+@app.get("/download/<file_id>")
+@login_required()
+def download_file(file_id):
+    # by id, so file names with spaces or symbols never have to survive the URL
+    f = db.row("SELECT name, mime, data FROM files WHERE id = ? AND owner = ?",
+               (file_id, request.user["username"]))
+    if not f:
+        abort(404)
+    return send_output(f)
+
+
 @app.get("/output/<batch>/<path:name>")
 @login_required()
 def output_file(batch, name):
     own_batch(batch)
-    f = db.row("SELECT name, mime, data FROM files WHERE batch = ? AND name = ?", (batch, name))
+    # some hosts pass the path still %-encoded, so try the decoded name too
+    f = (db.row("SELECT name, mime, data FROM files WHERE batch = ? AND name = ?", (batch, name))
+         or db.row("SELECT name, mime, data FROM files WHERE batch = ? AND name = ?", (batch, unquote(name))))
     if not f:
         abort(404)
-    return send_file(io.BytesIO(bytes(f["data"])), mimetype=f["mime"], as_attachment=True,
-                     download_name=os.path.basename(f["name"]))
+    return send_output(f)
 
 
 @app.get("/output/<batch>.zip")

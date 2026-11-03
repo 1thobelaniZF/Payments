@@ -340,7 +340,7 @@ async function generate(kind, ids){
     const what = r.kind==='import' ? 'Import sheet' : 'Payment requisition(s)';
     $('#result').innerHTML = `<div class="result"><b>${what} done - ${r.count} invoice(s), ${money(r.total)}.</b>
       ${r.files.length>1 ? `<a href="/output/${b}.zip">Download all (.zip)</a>` : ''}
-      <ul>${r.files.map(f=>`<li><a href="/output/${b}/${encodeURIComponent(f)}">${esc(f)}</a></li>`).join('')}</ul>
+      <ul>${r.files.map(f=>`<li><a href="/download/${encodeURIComponent(f.id)}">${esc(f.name)}</a></li>`).join('')}</ul>
       <div class="hint" style="margin-top:6px">You can download these again later under "My previous downloads".</div></div>`;
     selected.clear(); refresh();
   }catch(err){
