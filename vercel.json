@@ -5,5 +5,8 @@
       "maxDuration": 60,
       "includeFiles": "{templates/**,excel_templates/**,*.html,*.xlsx}"
     }
-  }
+  },
+  "regions": [
+    "cdg1"
+  ]
 }

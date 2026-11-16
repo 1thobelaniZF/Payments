@@ -64,13 +64,17 @@ def _run(sql, params=()):
     global _ready
     if not _ready:
         _ready = True
-        for stmt in SCHEMA:
-            _exec(stmt)
-        for stmt in MIGRATIONS:  # columns added after the first release; fail = already there
-            try:
+        if PG_URL:  # one round trip: the database may be far from the server
+            _conn().execute(";\n".join(SCHEMA + [m.replace("ADD COLUMN", "ADD COLUMN IF NOT EXISTS")
+                                                 for m in MIGRATIONS]))
+        else:
+            for stmt in SCHEMA:
                 _exec(stmt)
-            except Exception:
-                pass
+            for stmt in MIGRATIONS:  # columns added after the first release; fail = already there
+                try:
+                    _exec(stmt)
+                except Exception:
+                    pass
     return _exec(sql, params)
 
 
