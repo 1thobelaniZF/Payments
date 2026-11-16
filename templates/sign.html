@@ -48,7 +48,18 @@ main{max-width:1100px;margin:0 auto;padding:20px 24px 80px}
 .step.next{border-color:color-mix(in srgb,var(--warn) 55%,var(--line));background:var(--warn-bg)}
 .step .who{font-weight:600;color:var(--ink)} .step .when{color:var(--muted);font-size:12px}
 .step .nouser{color:var(--bad);font-size:12px}
-.actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end}
+.actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap}
+.docs{margin-top:10px;font-size:13px}
+.docs .doc{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)}
+.docs .doc:first-of-type{border-top:0}
+.docs .doc a{color:var(--ink);font-weight:600;word-break:break-all}
+.docs .doc .by{color:var(--muted);font-size:12px;margin-left:auto;white-space:nowrap}
+.docs .doc button{padding:2px 9px;font-size:12px}
+.attach{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;margin-top:14px}
+.attach .h{font-weight:600;font-size:14px}
+.attach .add{display:inline-block;margin-top:8px;padding:7px 13px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:14px}
+.attach .add:hover{border-color:var(--muted)}
+.attach input[type=file]{display:none}
 .empty{color:var(--muted);text-align:center;padding:40px}
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;width:min(760px,96vw);max-height:94vh}
 dialog::backdrop{background:rgba(0,0,0,.4)}
@@ -132,12 +143,20 @@ label.chk input{margin-top:3px}
     <div id="mSaved" hidden><div class="saved"><img id="savedImg" alt="Your saved signature"></div>
       <div style="display:flex;justify-content:flex-end;margin-top:6px"><button id="forget">Forget saved signature</button></div></div>
 
+    <div class="attach" id="attach">
+      <div class="h">Supporting documents</div>
+      <div class="hint" id="attachHint"></div>
+      <div class="docs" id="dDocs"></div>
+      <label class="add" id="addDoc">+ Add documents<input type="file" id="docInput" multiple
+        accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.docx,.doc,.txt,.msg,.eml"></label>
+    </div>
+
     <label class="chk"><input type="checkbox" id="agree"> <span id="agreeText"></span></label>
     <label class="chk" id="rememberRow"><input type="checkbox" id="remember" checked> Save this signature for next time</label>
     <div class="err" id="dErr" hidden></div>
   </div>
   <div class="foot">
-    <a id="dDownload" href="#" style="margin-right:auto">Download requisition (PDF)</a>
+    <a id="dDownload" href="#" style="margin-right:auto">Download requisition</a>
     <button id="dCancel">Cancel</button>
     <button class="primary" id="dSign">Sign</button>
   </div>
@@ -188,6 +207,15 @@ function stepHtml(sl, it){
   return `<div class="step ${cls}"><b>${esc(sl.label)}</b><span class="who">${sl.signed_at?'✓ ':''}${esc(sl.signed_name||sl.name)}</span>${status}${nouser}</div>`;
 }
 
+const size = n => n < 1024*1024 ? Math.max(1, Math.round(n/1024)) + ' KB' : (n/1024/1024).toFixed(1) + ' MB';
+function docsHtml(it, editable){
+  return it.attachments.map(a => `<div class="doc">
+    <a href="/api/signing/${it.id}/attachments/${a.id}">${esc(a.name)}</a> <span class="hint">${size(a.size)}</span>
+    <span class="by">${esc(a.by_name)} · ${esc(a.label)}</span>
+    ${editable && a.by===data.user.username && a.slot===it.next ? `<button data-rm="${a.id}" title="Remove">Remove</button>` : ''}
+  </div>`).join('');
+}
+
 function render(){
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on', b.dataset.f===filter));
   const items = data.items.filter(i => filter==='all' || (filter==='mine' ? i.can_sign : i.status===filter));
@@ -199,8 +227,10 @@ function render(){
         <span class="spacer"></span></div>
       <div class="meta">${esc(it.file_name)} · created by ${esc(it.owner_name)} on ${esc(when(it.created))}</div>
       <div class="steps">${it.slots.map(sl=>stepHtml(sl, it)).join('')}</div>
+      ${it.attachments.length ? `<div class="docs">📎 ${it.attachments.length} supporting document${it.attachments.length>1?'s':''}${docsHtml(it, false)}</div>` : ''}
       <div class="actions"><a href="/api/signing/${it.id}/file"><button>Download</button></a>
-        ${it.is_pdf ? '<button data-act="preview">Preview</button>' : ''}
+        ${it.attachments.length ? `<a href="/api/signing/${it.id}/pack.zip"><button>Download all (.zip)</button></a>` : ''}
+        ${it.can_preview ? '<button data-act="preview">Preview</button>' : ''}
         <button data-act="view" class="${it.can_sign?'primary':''}">${it.can_sign?'Review & sign':'View'}</button></div>
     </div>`).join('') : `<div class="empty">${filter==='mine' ? 'Nothing is waiting for your signature.' : 'Nothing here yet.'}</div>`;
 }
@@ -239,11 +269,12 @@ async function openSign(id){
   const s = current.summary, sl = current.slots.find(x=>x.slot===current.next);
   $('#dTitle').textContent = s.payee;
   $('#dMeta').textContent = `${current.file_name} · payment date ${s.date} · created by ${current.owner_name}`;
-  $('#dSummary').innerHTML = (current.is_pdf ? `<div class="pdfbox"><iframe src="${previewUrl(current)}" title="Requisition preview"></iframe></div>` : summaryHtml(s)) + `<div class="steps">${current.slots.map(x=>stepHtml(x, current)).join('')}</div>`;
+  $('#dSummary').innerHTML = (current.can_preview ? `<div class="pdfbox"><iframe src="${previewUrl(current)}" title="Requisition preview"></iframe></div>` : summaryHtml(s)) + `<div class="steps">${current.slots.map(x=>stepHtml(x, current)).join('')}</div>`;
   $('#dDownload').href = `/api/signing/${id}/file`;
   const signing = current.can_sign;
   ['#dRole','#mode','#mTyped','#mDrawn','#mSaved','#rememberRow'].forEach(x=>$(x).hidden = !signing);
   $('#agree').parentElement.hidden = !signing;
+  renderDocs();
   $('#dSign').hidden = !signing;
   $('#dErr').hidden = true;
   if(signing){
@@ -353,6 +384,41 @@ $('#dSign').onclick = async () => {
   finally{ $('#dSign').disabled = false; }
 };
 $('#dCancel').onclick = () => $('#dlg').close();
+
+// ------------------------------------------------------------ supporting documents
+function renderDocs(){
+  const it = current, n = it.attachments.length;
+  $('#attach').hidden = !it.can_sign && !n;
+  $('#addDoc').hidden = !it.can_sign;
+  $('#attachHint').textContent = it.can_sign
+    ? 'Add anything the next person should see with this requisition (quotes, approvals, proof of banking…). PDF, images, Excel, Word, CSV or email, up to 4 MB each.'
+    : n ? 'Added by the people who signed before.' : '';
+  $('#dDocs').innerHTML = docsHtml(it, true);
+}
+$('#docInput').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  const err = $('#dErr'); err.hidden = true;
+  for(const f of files){  // one at a time: each request has to stay under the host's size limit
+    if(f.size > 4*1024*1024){ err.textContent = `${f.name} is over 4 MB`; err.hidden = false; continue; }
+    const fd = new FormData(); fd.append('file', f);
+    $('#addDoc').firstChild.textContent = `Adding ${f.name}…`;
+    try{
+      const r = await fetch(`/api/signing/${current.id}/attachments`, {method:'POST', body: fd});
+      const body = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(body.error || (r.status===413 ? `${f.name} is too large` : r.statusText));
+      current.attachments.push(body); renderDocs();
+    }catch(x){ err.textContent = `${f.name}: ${x.message}`; err.hidden = false; }
+  }
+  $('#addDoc').firstChild.textContent = '+ Add documents';
+};
+$('#dDocs').onclick = async e => {
+  const id = e.target.dataset.rm; if(!id) return;
+  try{
+    await api(`/api/signing/${current.id}/attachments/${id}`, {method:'DELETE'});
+    current.attachments = current.attachments.filter(a=>a.id!==id); renderDocs();
+  }catch(x){ toast(x.message); }
+};
+$('#dlg').addEventListener('close', () => load());
 $('#forget').onclick = async () => { await api('/api/me/signature',{method:'DELETE'}); saved = {}; $('#savedTab').hidden = true; setMode('typed'); toast('Saved signature removed'); };
 
 load();

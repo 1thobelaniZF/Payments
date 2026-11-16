@@ -661,17 +661,17 @@ def generate():
         for n, g in enumerate(groups, start=1):
             if len({supplier_key(i["payee"]) for i in g}) > 1:
                 part = f" (part {n})" if len(groups) > 1 else ""
-                name = f"Requisition - Various suppliers - {len(g)} invoices{part}.pdf"
+                name = f"Requisition - Various suppliers - {len(g)} invoices{part}.xlsx"
             else:
                 nums = "_".join(safe(i["invoice_number"]) for i in g)[:40]
-                name = f"Requisition - {generators.safe_filename(g[0]['payee'])} - {nums}.pdf"
-            try:  # works out the form's content (lines, allocations, totals) using the template rules
-                summary = generators.build_requisition(g, s, io.BytesIO())
+                name = f"Requisition - {generators.safe_filename(g[0]['payee'])} - {nums}.xlsx"
+            buf = io.BytesIO()
+            try:
+                summary = generators.build_requisition(g, s, buf)
             except ValueError as e:
                 return jsonify(error=str(e)), 400
-            spec = pdf_spec(summary, s)
-            out.append((name, "application/pdf", pdf_requisition.render(spec)))
-            summaries[name] = (summary, spec)
+            out.append((name, XLSX, buf.getvalue()))
+            summaries[name] = (summary, pdf_spec(summary, s))
         # the source invoices go in the zip alongside, for the approval pack
         for it in chosen:
             f = db.row("SELECT data FROM files WHERE id = ?", (it["file"],))
@@ -809,15 +809,16 @@ def render_signed_pdf(data):
     return pdf_requisition.render(spec)
 
 
-def start_signing(file_id, file_name, owner, owner_name, s, summary, spec=None):
+def start_signing(file_id, file_name, owner, owner_name, s, summary, spec=None, fmt="xlsx"):
     """Every new requisition is open for signing by the people named on it, in order."""
     slots = []
     for key, setting in (("prepared", "prepared_by"), ("reviewed", "reviewed_by"), ("approved", "approved_by")):
         if s.get(setting):
             slots.append({"slot": key, "label": generators.SIGN_SLOTS[key]["label"], "name": s[setting]})
-    data = {"file_name": file_name, "owner_name": owner_name, "summary": summary, "slots": slots, "log": []}
-    if spec:
-        data.update(format="pdf", spec=spec)
+    data = {"file_name": file_name, "owner_name": owner_name, "summary": summary, "slots": slots, "log": [],
+            "attachments": []}
+    if spec:  # kept so the requisition can be previewed in the browser, whatever the file format
+        data.update(format=fmt, spec=spec)
     db.run("INSERT INTO signing (id, file_id, owner, created, status, data) VALUES (?, ?, ?, ?, ?, ?)",
            (uuid.uuid4().hex[:12], file_id, owner, now().isoformat(timespec="seconds"),
             "signing" if slots else "complete", json.dumps(data)))
@@ -837,7 +838,8 @@ def signing_view(r, user, names):
             "owner_name": data["owner_name"], "file_name": data["file_name"], "summary": data["summary"],
             "slots": data["slots"], "next": nxt and nxt["slot"],
             "can_sign": bool(nxt) and norm_name(nxt["name"]) == norm_name(user["name"]),
-            "is_pdf": data.get("format") == "pdf",
+            "can_preview": bool(data.get("spec")),
+            "attachments": data.get("attachments", []),
             "version": sum(1 for sl in data["slots"] if sl.get("signed_at"))}
 
 
@@ -865,10 +867,15 @@ def list_signing():
 @app.get("/api/signing/<sid>/file")
 @login_required()
 def signing_file(sid):
-    r = db.row("SELECT file_id FROM signing WHERE id = ?", (sid,))
+    r = db.row("SELECT file_id, data FROM signing WHERE id = ?", (sid,))
     f = r and db.row("SELECT name, mime, data FROM files WHERE id = ?", (r["file_id"],))
     if not f:
         abort(404)
+    data = json.loads(r["data"])
+    if request.args.get("inline") == "1" and data.get("format") != "pdf" and data.get("spec"):
+        # browsers can't show Excel, so the preview is the same form drawn as a PDF
+        return send_file(io.BytesIO(render_signed_pdf(data)), mimetype="application/pdf",
+                         download_name=os.path.splitext(f["name"])[0] + ".pdf")
     # ?inline=1 shows the PDF in the browser (preview) instead of downloading it
     return send_file(io.BytesIO(bytes(f["data"])), mimetype=f["mime"],
                      as_attachment=request.args.get("inline") != "1", download_name=f["name"])
@@ -924,10 +931,11 @@ def sign(sid):
     f = db.row("SELECT data FROM files WHERE id = ?", (r["file_id"],))
     before = bytes(f["data"])
     signed_on = now().date()
-    if data.get("format") == "pdf":
-        sl.update(image=base64.b64encode(png).decode(), signed_on=signed_on.isoformat(), signed_at="pending")
+    # keep the image with the slot so the preview can draw every signature so far
+    sl.update(image=base64.b64encode(png).decode(), signed_on=signed_on.isoformat(), signed_at="pending")
+    if data.get("format") == "pdf":  # made during the weeks requisitions were PDFs
         after = render_signed_pdf(data)
-    else:  # requisitions made as Excel before the switch to PDF
+    else:
         after = generators.sign_requisition(before, sl["slot"], png, signed_on)
 
     sl.update({"signed_by": user["username"], "signed_name": user["name"], "method": method,
@@ -947,6 +955,109 @@ def sign(sid):
     return jsonify(ok=True, status=status)
 
 
+# ---------------------------------------------------------------- supporting documents
+
+ATTACH_TYPES = {  # what people may add alongside a requisition
+    ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".xlsx": XLSX, ".xls": "application/vnd.ms-excel", ".csv": "text/csv",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword", ".txt": "text/plain", ".msg": "application/vnd.ms-outlook",
+    ".eml": "message/rfc822",
+}
+MAX_ATTACHMENTS = 20
+
+
+def signing_row(sid):
+    r = db.row("SELECT * FROM signing WHERE id = ?", (sid,))
+    if not r:
+        abort(404)
+    return r, json.loads(r["data"])
+
+
+@app.post("/api/signing/<sid>/attachments")
+@login_required()
+def add_attachment(sid):
+    """The person whose turn it is adds documents for the people after them (one file per request)."""
+    user = request.user
+    r, data = signing_row(sid)
+    sl = next_slot(data)
+    if not sl or norm_name(sl["name"]) != norm_name(user["name"]):
+        return jsonify(error="You can add documents while it's your turn to sign"), 403
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(error="Choose a file"), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in ATTACH_TYPES:
+        return jsonify(error="That type of file can't be added (use PDF, image, Excel, Word, CSV, text or email)"), 400
+    atts = data.setdefault("attachments", [])
+    if len(atts) >= MAX_ATTACHMENTS:
+        return jsonify(error=f"A requisition can carry at most {MAX_ATTACHMENTS} documents"), 400
+    raw = f.read()
+    if not raw:
+        return jsonify(error="That file is empty"), 400
+    name = generators.safe_filename(os.path.splitext(f.filename)[0]) + ext
+    file_id = uuid.uuid4().hex
+    db.run("INSERT INTO files (id, owner, batch, name, mime, data, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+           (file_id, user["username"], "sign:" + sid, name, ATTACH_TYPES[ext], db.blob(raw), now().isoformat()))
+    att = {"id": file_id, "name": name, "size": len(raw), "by": user["username"], "by_name": user["name"],
+           "slot": sl["slot"], "label": sl["label"], "at": now().isoformat(timespec="seconds")}
+    atts.append(att)
+    data["log"].append({"at": att["at"], "who": user["username"], "what": f"added {name}"})
+    db.run("UPDATE signing SET data = ? WHERE id = ?", (json.dumps(data), sid))
+    return jsonify(att)
+
+
+@app.get("/api/signing/<sid>/attachments/<aid>")
+@login_required()
+def get_attachment(sid, aid):
+    _, data = signing_row(sid)
+    if not any(a["id"] == aid for a in data.get("attachments", [])):
+        abort(404)
+    f = db.row("SELECT name, mime, data FROM files WHERE id = ? AND batch = ?", (aid, "sign:" + sid))
+    if not f:
+        abort(404)
+    # always a download, never shown in the page: these files come from people, not the app
+    return send_file(io.BytesIO(bytes(f["data"])), mimetype=f["mime"], as_attachment=True, download_name=f["name"])
+
+
+@app.delete("/api/signing/<sid>/attachments/<aid>")
+@login_required()
+def remove_attachment(sid, aid):
+    """You can take back a document you added, until you've signed and passed it on."""
+    user = request.user
+    _, data = signing_row(sid)
+    sl = next_slot(data)
+    att = next((a for a in data.get("attachments", []) if a["id"] == aid), None)
+    if not att:
+        abort(404)
+    if att["by"] != user["username"] or not sl or sl["slot"] != att["slot"]:
+        return jsonify(error="Only the person who added it can remove it, before they sign"), 403
+    data["attachments"].remove(att)
+    data["log"].append({"at": now().isoformat(timespec="seconds"), "who": user["username"], "what": f"removed {att['name']}"})
+    db.run("DELETE FROM files WHERE id = ?", (aid,))
+    db.run("UPDATE signing SET data = ? WHERE id = ?", (json.dumps(data), sid))
+    return jsonify(ok=True)
+
+
+@app.get("/api/signing/<sid>/pack.zip")
+@login_required()
+def signing_pack(sid):
+    """The requisition plus every supporting document, in one download."""
+    r, data = signing_row(sid)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        f = db.row("SELECT name, data FROM files WHERE id = ?", (r["file_id"],))
+        if f:
+            z.writestr(f["name"], bytes(f["data"]))
+        for a in data.get("attachments", []):
+            f = db.row("SELECT data FROM files WHERE id = ? AND batch = ?", (a["id"], "sign:" + sid))
+            if f:
+                z.writestr(f"Supporting documents/{a['label']} - {a['name']}", bytes(f["data"]))
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name=os.path.splitext(data["file_name"])[0] + " - with documents.zip")
+
+
 @app.get("/api/me/signature")
 @login_required()
 def my_signature():
@@ -962,7 +1073,7 @@ def forget_signature():
 
 @app.errorhandler(413)
 def too_big(_):
-    return jsonify(error="That file is too large (max 4 MB per PDF)"), 413
+    return jsonify(error="That file is too large (max 4 MB per file)"), 413
 
 
 if __name__ == "__main__":
