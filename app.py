@@ -432,11 +432,10 @@ def new_item(user, pdf_bytes, original_name):
             (v for k, v in suppliers.items() if k and k in supplier_key(text)), None)
     if match:
         item["known_supplier"] = True
-        for k in ("payee", "import_name", "bank_name"):
+        for k in ("payee", "import_name", "gl_code", "allocation_code", "bank_name"):
             if match.get(k):
                 item[k] = match[k]
-        # codes printed on the invoice (e.g. a Pastel project) win over the ones last used
-        for k in ("gl_code", "allocation_code", "account_number", "branch_code"):
+        for k in ("account_number", "branch_code"):
             if match.get(k) and not item[k]:
                 item[k] = match[k]
         if match.get("account_number") and item["account_number"] != match["account_number"]:
@@ -632,8 +631,6 @@ def generate():
                  if r["position"]}
     for key in ("prepared_by", "reviewed_by", "approved_by"):
         s[key + "_position"] = positions.get(norm_name(s.get(key)), "")
-    if (body.get("payee") or "").strip():  # typed in when one requisition mixes suppliers
-        s["combined_payee"] = body["payee"].strip()[:120]
 
     items = load_items(owner)
     chosen = [i for i in items if (ids is None or i["id"] in ids)]
@@ -664,8 +661,7 @@ def generate():
         for n, g in enumerate(groups, start=1):
             if len({supplier_key(i["payee"]) for i in g}) > 1:
                 part = f" (part {n})" if len(groups) > 1 else ""
-                payee = generators.safe_filename(s.get("combined_payee") or "Various suppliers")
-                name = f"Requisition - {payee} - {len(g)} invoices{part}.xlsx"
+                name = f"Requisition - Various suppliers - {len(g)} invoices{part}.xlsx"
             else:
                 nums = "_".join(safe(i["invoice_number"]) for i in g)[:40]
                 name = f"Requisition - {generators.safe_filename(g[0]['payee'])} - {nums}.xlsx"

@@ -155,18 +155,6 @@ dialog .foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;bor
   <details id="pastBox" style="margin-top:24px"><summary style="cursor:pointer;font-weight:600">My previous downloads</summary><div id="past" class="hint" style="margin-top:8px"></div></details>
 </main>
 
-<dialog id="payeeDlg">
-  <form method="dialog">
-  <div class="body">
-    <h2>Payee for this requisition</h2>
-    <p class="hint" style="margin:-6px 0 12px">These invoices are from different suppliers (<span id="payeeList"></span>).
-      Type the payee to show at the top of the requisition.</p>
-    <label>Payee <input id="payeeInput" required maxlength="120"></label>
-  </div>
-  <div class="foot"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Make requisition</button></div>
-  </form>
-</dialog>
-
 <dialog id="settingsDlg">
   <form method="dialog">
   <div class="body">
@@ -184,6 +172,7 @@ dialog .foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;bor
       <label class="c2">Branch code <input name="debit_branch_code"></label>
       <label class="c3">Our reference prefix <input name="debit_ref_prefix"><span class="hint">Ours shows as "Zenex &lt;supplier&gt;" (20 chars max)</span></label>
       <label class="c3">Default beneficiary reference <input name="default_ref"><span class="hint">"invoice" = use the invoice number; anything else is used as-is</span></label>
+      <label class="c6">Payee heading when a requisition has several suppliers <input name="combined_payee"></label>
       <label class="c6">Our organisation names (comma separated) <input name="customer_names"><span class="hint">So the reader never mistakes the customer for the supplier</span></label>
     </div>
   </div>
@@ -372,14 +361,6 @@ async function generate(kind, ids, btn){
   if(!ids.length) return toast('No invoices to process');
   const dup = state.items.filter(i=>body.ids.includes(i.id) && i.issues.some(x=>x.startsWith('Possible duplicate')));
   if(dup.length && !confirm(`${dup.length} invoice(s) look like duplicates of ones already processed. Continue?`)) return;
-  if(kind==='requisition' && body.group==='all'){
-    const names = [...new Set(state.items.filter(i=>ids.includes(i.id)).map(i=>(i.payee||'').trim()).filter(Boolean))];
-    if(names.length > 1){
-      const payee = await askPayee(names);
-      if(payee === null) return;
-      body.payee = payee;
-    }
-  }
   const what = kind==='import' ? 'import sheet' : (ids.length>1 ? 'payment requisitions' : 'payment requisition');
   const done = working(btn, `Making ${what}…`, `${ids.length} invoice${ids.length>1?'s':''} · this takes a few seconds`);
   try{
@@ -402,17 +383,6 @@ async function generate(kind, ids, btn){
 }
 $('#reqBtn').onclick = e => generate('requisition', null, e.currentTarget);
 $('#impBtn').onclick = e => generate('import', null, e.currentTarget);
-
-// several suppliers on one requisition: the person making it types the payee
-function askPayee(names){
-  const dlg = $('#payeeDlg');
-  $('#payeeList').textContent = names.join(', ');
-  $('#payeeInput').value = names.join(' & ').slice(0, 120);
-  dlg.returnValue = '';
-  dlg.showModal(); $('#payeeInput').select();
-  return new Promise(done => dlg.addEventListener('close', () =>
-    done(dlg.returnValue==='ok' && $('#payeeInput').value.trim() ? $('#payeeInput').value.trim() : null), {once:true}));
-}
 
 // show at once that a button was pressed; returns a function that puts things back
 function working(btn, title, hint){

@@ -27,8 +27,7 @@ def _date(s):
 
 
 def safe_filename(s):
-    s = re.sub(r"\s*&\s*", " and ", s)
-    return re.sub(r"\s{2,}", " ", re.sub(r"[^\w\- .]+", "", s)).strip()[:60] or "invoice"
+    return re.sub(r"[^\w\- .]+", "", s).strip()[:60] or "invoice"
 
 
 def _load_template():

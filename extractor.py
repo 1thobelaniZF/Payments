@@ -17,7 +17,7 @@ import pdfplumber
 
 FIELDS = [
     "supplier_name", "invoice_number", "invoice_date", "description", "amount",
-    "bank_name", "account_holder", "account_number", "branch_code", "gl_code", "allocation_code",
+    "bank_name", "account_holder", "account_number", "branch_code",
 ]
 
 BANKS = [
@@ -189,20 +189,6 @@ def _description(t):
     return m.group(1).strip() if m else ""
 
 
-def _pastel(t):
-    """Pastel / Sage "Supplier Invoice": our own record of a supplier's invoice."""
-    if not re.search(r"Supplier\s+Invoice", t, re.I) or not re.search(r"Document\s+No", t, re.I):
-        return {}
-    out = {}
-    m = re.search(r"Document\s+No\.?\s*:?\s*([A-Z]{1,4}\d{3,})", t, re.I)
-    if m:
-        out["invoice_number"] = m.group(1)
-    m = re.search(r"^\s*(\d{5,})\s+(.+?)\s+([A-Z]{1,4}\d{2,})\s+\d+(?:[.,]\d+)?%", t, re.M)
-    if m:  # first line item: Code, Description ... Project, Tax %
-        out.update(gl_code=m.group(1), description=m.group(2).strip(), allocation_code=m.group(3))
-    return out
-
-
 def extract_rules(text, ignore_names=()):
     return {
         "supplier_name": _supplier(text, ignore_names),
@@ -214,9 +200,6 @@ def extract_rules(text, ignore_names=()):
         "account_holder": "",
         "account_number": _account_number(text),
         "branch_code": _branch_code(text),
-        "gl_code": "",
-        "allocation_code": "",
-        **_pastel(text),
     }
 
 
@@ -234,8 +217,6 @@ SCHEMA = {
         "account_holder": {"type": "string"},
         "account_number": {"type": "string", "description": "Digits only"},
         "branch_code": {"type": "string", "description": "Digits only, 6 digits"},
-        "gl_code": {"type": "string", "description": "General-ledger / item Code column of the first line, if the invoice has one"},
-        "allocation_code": {"type": "string", "description": "Project code column of the first line, if the invoice has one"},
     },
     "required": FIELDS,
     "additionalProperties": False,
@@ -260,19 +241,12 @@ def extract_claude(src, ignore_names=()):
     prompt = (
         "Extract the payment details from this supplier invoice. "
         f"The customer (payer) is {customer}; never return the customer as the supplier. "
-        "Use empty strings for anything not on the invoice and 0 for an unknown amount.\n\n"
-        "If this is a Pastel / Sage 'Supplier Invoice' (boxes for Date, Page and Document No at the "
-        "top right): the customer's own name and address are in the top-left box, and the supplier "
-        "is the name in the box below it. Use the Document No (e.g. PN109162) as invoice_number, the "
-        "line's Code as gl_code, its Project as allocation_code, its Description as description, "
-        "and the Total as amount. These documents usually have no bank details - leave them empty."
+        "Use empty strings for anything not on the invoice and 0 for an unknown amount."
     )
     client = anthropic.Anthropic()
-    response = client.beta.messages.create(
-        model=os.environ.get("INVOICE_MODEL", "claude-opus-5-5"),
+    response = client.messages.create(
+        model=os.environ.get("INVOICE_MODEL", "claude-opus-5"),
         max_tokens=4000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         messages=[{"role": "user", "content": [
             {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": data}},
@@ -281,7 +255,7 @@ def extract_claude(src, ignore_names=()):
     )
     if response.stop_reason == "refusal":
         raise RuntimeError("Claude declined to read this invoice")
-    text = next(b.text for b in response.content if b.type == "text")  # skips any fallback block
+    text = next(b.text for b in response.content if b.type == "text")
     out = json.loads(text)
     out["account_number"] = digits(out.get("account_number"))
     bc = digits(out.get("branch_code"))
@@ -309,7 +283,5 @@ def extract(src, ignore_names=()):
             warning = f"AI extraction failed ({type(e).__name__}: {e}); used rule-based reading instead. "
     if not text.strip():
         return {k: "" for k in FIELDS}, "none", warning + (
-            "This PDF has no readable text (a scan, or a Pastel invoice where the letters are drawn as "
-            "shapes), so only AI reading can fill it in. Please type the details in, or ask an admin "
-            "to turn on AI reading."), text
+            "No text found in this PDF (it may be a scan). Please type the details in."), text
     return extract_rules(text, ignore_names), "rules", warning, text
